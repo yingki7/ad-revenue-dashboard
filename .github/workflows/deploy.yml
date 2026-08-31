@@ -1,0 +1,62 @@
+name: Deploy and update dashboard
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "20 1 * * *"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  update-data:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch normalized TradPlus report
+        env:
+          REPORT_URL: ${{ secrets.TRADPLUS_REPORT_URL }}
+          API_TOKEN: ${{ secrets.TRADPLUS_API_TOKEN }}
+        run: |
+          if [ -z "$REPORT_URL" ]; then
+            echo "TRADPLUS_REPORT_URL is not configured; keeping current data."
+            exit 0
+          fi
+          AUTH_ARGS=()
+          if [ -n "$API_TOKEN" ]; then
+            AUTH_ARGS=(-H "Authorization: Bearer $API_TOKEN")
+          fi
+          curl -fsSL "${AUTH_ARGS[@]}" "$REPORT_URL" -o data.json
+          node -e 'const d=require("./data.json"); if(!Array.isArray(d.current)||!Array.isArray(d.previous)||d.current.length<30||d.previous.length<30) process.exit(1)'
+      - name: Commit refreshed data
+        run: |
+          if git diff --quiet -- data.json; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data.json
+          git commit -m "Update dashboard data"
+          git push
+
+  deploy:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v4
