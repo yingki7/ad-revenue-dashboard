@@ -1,10 +1,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
-const candidates = ['upload/report.csv', 'upload/report.json'];
-const source = candidates.find(fs.existsSync);
+const reportFiles = fs.existsSync('upload')
+  ? fs.readdirSync('upload').filter(name => /\.(csv|json)$/i.test(name) && name !== 'report-template.csv').map(name => `upload/${name}`)
+  : [];
+let changedFiles = [];
+try {
+  changedFiles = execFileSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD'], { encoding: 'utf8' })
+    .split(/\r?\n/).filter(Boolean);
+} catch {}
+const changedReports = changedFiles.filter(file => reportFiles.includes(file));
+if (changedReports.length > 1) throw new Error('Please upload one CSV or JSON report per commit.');
+const source = changedReports[0] ?? (reportFiles.length === 1 ? reportFiles[0] : undefined);
 if (!source) {
-  console.log('No upload/report.csv or upload/report.json; keeping existing data.json.');
+  console.log('No newly uploaded CSV or JSON report; keeping existing data.json.');
   process.exit(0);
 }
 
