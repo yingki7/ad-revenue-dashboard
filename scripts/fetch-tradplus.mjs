@@ -5,7 +5,13 @@ if (!token) throw new Error('TRADPLUS_API_TOKEN is not configured.');
 
 const formatDate = date => date.toISOString().slice(0, 10);
 const nowChina = new Date(Date.now() + 8 * 60 * 60 * 1000);
-const end = new Date(Date.UTC(nowChina.getUTCFullYear(), nowChina.getUTCMonth(), nowChina.getUTCDate() - 1));
+// TradPlus completes UTC+8 report data at about 21:00 Beijing time.
+const completedDayOffset = nowChina.getUTCHours() >= 21 ? 1 : 2;
+const end = new Date(Date.UTC(
+  nowChina.getUTCFullYear(),
+  nowChina.getUTCMonth(),
+  nowChina.getUTCDate() - completedDayOffset,
+));
 const start = new Date(end); start.setUTCDate(end.getUTCDate() - 59);
 const limit = 1000;
 let offset = 0, items = [];
@@ -16,11 +22,14 @@ while (true) {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       startDate: formatDate(start), endDate: formatDate(end), timezone: 'UTC+8', currency: 'USD',
-      groupBy: ['date', 'app'], metric: ['revenue', 'dau', 'impressionApi'], start: offset, limit
+      groupBy: ['date', 'appId'], metric: ['revenue', 'dau', 'impressionApi'], start: offset, limit
     })
   });
   if (!response.ok) throw new Error(`TradPlus API request failed: HTTP ${response.status} ${await response.text()}`);
   const payload = await response.json();
+  if (payload.code && Number(payload.code) !== 200) {
+    throw new Error(`TradPlus API error ${payload.code}: ${payload.message ?? 'Unknown error'}`);
+  }
   const page = Array.isArray(payload.items) ? payload.items : [];
   items.push(...page);
   if (page.length < limit) break;
